@@ -1,0 +1,6 @@
+*.o
+*.cmi
+*.cmx
+*.so
+*.pyc
+/baplite
