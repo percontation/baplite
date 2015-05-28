@@ -22,8 +22,10 @@ def lift(arch, addr, code):
     if ocaml_output.startswith('['):
       try:
         return eval(ocaml_output, bil.__dict__)
-      except:
-        logger.exception("Error while evaling ocaml output.")
+      except KeyboardInterrupt:
+        raise
+      except BaseException:
+        logger.exception("Error while evaling ocaml output")
         return None
     else:
       if 'unimplemented feature' in ocaml_output or 'opcode unsupported' in ocaml_output:
@@ -40,7 +42,9 @@ def lift(arch, addr, code):
 
       logger.log(lvl, "Could not lift BIL for bytes %r%s: %s", errbytes, ellip, ocaml_output)
       return None
-  except:
+  except KeyboardInterrupt:
+    raise
+  except Exception:
     logger.exception("Error while lifting")
     return None
 
