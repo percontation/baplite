@@ -42,8 +42,6 @@ def lift(arch, addr, code):
 
       logger.log(lvl, "Could not lift BIL for bytes %r%s: %s", errbytes, ellip, ocaml_output)
       return None
-  except KeyboardInterrupt:
-    raise
   except Exception:
     logger.exception("Error while lifting")
     return None
