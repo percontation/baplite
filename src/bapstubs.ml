@@ -2,13 +2,12 @@ open Core_kernel
 open Core_kernel.Or_error
 open Bap.Std
 
-exception Arch_unsupp
+module Dis = Disasm_expert.Basic
+
+exception No_lifter
 exception No_instr
 exception Disasm_fail of string
 exception Lift_fail of string
-
-let disasm_basic arch =
-  Disasm_expert.Basic.create ~backend:"llvm" (Arch.to_string arch) |> ok_exn ;;
 
 let make_mem arch (addr, s) =
   Memory.create
@@ -16,25 +15,26 @@ let make_mem arch (addr, s) =
     (Addr.of_int64 ~width:(Size.to_bits @@ Arch.addr_size arch) addr)
     (Bigstring.of_string s) |> ok_exn ;;
 
-let archutils =
-  let armutils = lazy (disasm_basic `arm, make_mem `arm, ARM.lift) in
-  let x86utils = lazy (disasm_basic `x86, make_mem `x86, IA32.lift) in
-  let x64utils = lazy (disasm_basic `x86_64, make_mem `x86_64, AMD64.lift) in
-  function
-    | `arm -> Lazy.force armutils
-    | `x86 -> Lazy.force x86utils
-    | `x86_64 -> Lazy.force x64utils
-    | _ -> raise Arch_unsupp
-;;
+let get_disassembler =
+  let memo = ref Arch.Map.empty in
+  fun arch -> match Arch.Map.find !memo arch with
+    | Some dis -> dis
+    | None -> let dis = Dis.create ~backend:"llvm" (Arch.to_string arch) |> ok_exn in
+              (memo := Arch.Map.add !memo arch dis; dis)
+
+let get_lifter = function
+  | #Arch.arm -> ARM.lift
+  | `x86 -> IA32.lift
+  | `x86_64 -> AMD64.lift
+  | _ -> raise No_lifter
 
 let lift arch (addr, s) =
-  let dis, mkmem, lift = archutils arch in
-  let mem = mkmem (addr, s) in
-  match Disasm_expert.Basic.insn_of_mem dis mem with
+  let mem = make_mem arch (addr, s) in
+  match Dis.insn_of_mem (get_disassembler arch) mem with
     | Result.Error e -> raise @@ Disasm_fail (Error.to_string_hum e)
     | Result.Ok (_, None, _) -> raise No_instr
     | Result.Ok (_, Some insn, _) -> (
-        match lift mem insn with
+        match (get_lifter arch) mem insn with
           | Result.Ok bil -> bil
           | Result.Error e -> raise @@ Lift_fail (Error.to_string_hum e)
       )
@@ -46,7 +46,7 @@ let lift_stub archstr addr s =
       | Some arch -> lift arch (addr, s) |> Adt.strings_of_bil |> String.concat "," |> fun s -> "["^s^"]"
       | None -> "Invalid architecture"
   with
-    | Arch_unsupp -> "Architecture is not supported."
+    | No_lifter -> "No lifter for that architecture."
     | No_instr -> "No instruction disassembled from bytes."
     | Disasm_fail s -> "Disassembly failed: " ^ s
     | Lift_fail s -> "Lifting failed: " ^ s
